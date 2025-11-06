@@ -23,10 +23,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      # ↓↓↓ ЗАМЕНИТЕ эти два шага на один ↓↓↓
-      - name: Install Playwright
-        uses: microsoft/playwright-github-action@v1
-      # ↑↑↑ ЗАМЕНИТЕ эти два шага на один ↑↑↑
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgbm-dev x11-xkb-utils  
 
       - name: Run tests
-        run: mvn clean test -B  # ← Уберите Xvfb, он не нужен
+        run: |
+          export DISPLAY=:0
+          Xvfb :0 -screen 0 1280x720x24 >/dev/null 2>&1 &  
+          mvn clean test -B
