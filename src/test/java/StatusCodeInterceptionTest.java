@@ -42,7 +42,6 @@ public class StatusCodeInterceptionTest {
         });
 
         // Проверка мок-текста
-        //Проверка статус кода
         Assertions.assertEquals(200, response.status());
 
         //проверка текста h3
