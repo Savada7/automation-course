@@ -22,26 +22,37 @@ jobs:
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
-      - name: Install system dependencies
+
+      - name: Install Playwright dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libgbm-dev
+          sudo apt-get install -y xvfb libgbm-dev libnss3 libatk-bridge2.0-0 libdrm-dev libxkbcommon-dev libxcomposite-dev libxdamage-dev libxrandr2 libxext6
+
       - name: Run tests with Xvfb
         run: |
-          export DISPLAY=:0
-          Xvfb :0 -screen 0 1280x720x24 >/dev/null 2>&1 &
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1920x1080x24 >/dev/null 2>&1 &
           mvn clean test -B
-        env:
-          ALLURE_RESULTS_DIR: target/allure-results
 
       - name: Generate Allure Report
         if: always()
         run: |
           mvn allure:report -B
+
       - name: Upload Allure Report as artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
-          path: target/site/allure-maven-plugin
+          path: target/allure-report/
+          retention-days: 30
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            target/allure-results/
+            target/surefire-reports/
           retention-days: 30
