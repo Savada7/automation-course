@@ -1,9 +1,9 @@
-name: Java CI
+name: Java CI with Playwright and Allure
 
 on: [push]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
 
     steps:
@@ -16,20 +16,32 @@ jobs:
           java-version: "17"
 
       - name: Cache Maven dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libgbm-dev x11-xkb-utils  
-
-      - name: Run tests
+          sudo apt-get install -y xvfb libgbm-dev
+      - name: Run tests with Xvfb
         run: |
           export DISPLAY=:0
-          Xvfb :0 -screen 0 1280x720x24 >/dev/null 2>&1 &  
+          Xvfb :0 -screen 0 1280x720x24 >/dev/null 2>&1 &
           mvn clean test -B
+        env:
+          ALLURE_RESULTS_DIR: target/allure-results
+
+      - name: Generate Allure Report
+        if: always()
+        run: |
+          mvn allure:report -B
+      - name: Upload Allure Report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: target/site/allure-maven-plugin
+          retention-days: 30
