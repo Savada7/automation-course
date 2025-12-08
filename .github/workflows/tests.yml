@@ -1,89 +1,34 @@
-name: Java CI with Playwright and Allure
+name: Java CI with Playwright
 
 on: [push]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Setup Java
         uses: actions/setup-java@v3
         with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Cache Maven dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-
-      - name: Install Playwright dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libgbm-dev libnss3 libatk-bridge2.0-0 libdrm-dev libxkbcommon-dev libxcomposite-dev libxdamage-dev libxrandr2 libxext6
+          java-version: '17'
 
       - name: Run tests
         run: |
           export DISPLAY=:99
           Xvfb :99 -screen 0 1920x1080x24 >/dev/null 2>&1 &
-          
-          # Запуск тестов с замедлением для видео
-          mvn clean test -B -Dslow.mo=200 -Dheadless=true
+          mvn clean test -B -Dslow.mo=200
 
-      - name: Find timestamp directory
-        id: find-timestamp
-        run: |
-          # Ищем последнюю timestamp директорию
-          TIMESTAMP_DIR=$(find target -maxdepth 1 -type d -name "202*-*-*_*-*-*" | head -1)
-          
-          if [ -n "$TIMESTAMP_DIR" ]; then
-            echo "Found timestamp directory: $TIMESTAMP_DIR"
-            echo "timestamp_dir=$TIMESTAMP_DIR" >> $GITHUB_OUTPUT
-          
-            # Создаем симлинк для удобства
-            ln -sf $TIMESTAMP_DIR target/latest-run
-            echo "Created symlink: target/latest-run -> $TIMESTAMP_DIR"
-          else
-            echo "No timestamp directory found"
-          fi
-
-      - name: Generate Allure Report
+      - name: Create artifacts archive
         if: always()
         run: |
-          # Генерируем отчет из timestamp директории если она есть
-          if [ -n "${{ steps.find-timestamp.outputs.timestamp_dir }}" ]; then
-            mvn allure:report -B -Dallure.results.directory=${{ steps.find-timestamp.outputs.timestamp_dir }}/allure-results
-          else
-            mvn allure:report -B
-          fi
+          # Просто архивируем всю папку target
+          zip -r test-results.zip target/
 
-      - name: Upload Allure Report
+      - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: allure-report
-          path: target/allure-report/
-          retention-days: 30
-
-      - name: Upload timestamp artifacts
-        if: always() && steps.find-timestamp.outputs.timestamp_dir != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: timestamp-artifacts-${{ steps.find-timestamp.outputs.timestamp_dir }}
-          path: |
-            ${{ steps.find-timestamp.outputs.timestamp_dir }}/
-          retention-days: 30
-
-      - name: Upload all target artifacts (fallback)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: all-target-files
-          path: target/
+          name: test-results
+          path: test-results.zip
           retention-days: 30
