@@ -12,11 +12,11 @@ public class CartTest extends BaseTest{
         page.click("button:has-text('Add Element')");
         Locator deleteButton = page.locator("button.added-manually");
         Assertions.assertTrue(deleteButton.isVisible());
-        saveScreenshot("added 1 element");
+        captureScreenshot("add 1 element");
 
         deleteButton.click();
 
         Assertions.assertEquals(0, page.locator("button.added-manually").count());
-        saveScreenshot("deleted element");
+        captureScreenshot("deleted element");
     }
 }

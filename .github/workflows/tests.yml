@@ -28,18 +28,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb libgbm-dev libnss3 libatk-bridge2.0-0 libdrm-dev libxkbcommon-dev libxcomposite-dev libxdamage-dev libxrandr2 libxext6
 
-      - name: Run tests with Xvfb
+      - name: Run tests
         run: |
           export DISPLAY=:99
           Xvfb :99 -screen 0 1920x1080x24 >/dev/null 2>&1 &
-          mvn clean test -B
+          
+          # Запуск тестов с замедлением для видео
+          mvn clean test -B -Dslow.mo=200 -Dheadless=true
+          
+          # Получаем timestamp директорию
+          TIMESTAMP_DIR=$(find target -type d -name "202*-*-*_*-*-*" | head -1)
+          
+          if [ -n "$TIMESTAMP_DIR" ]; then
+            echo "Artifacts saved in: $TIMESTAMP_DIR"
+            echo "TIMESTAMP_DIR=$TIMESTAMP_DIR" >> $GITHUB_ENV
+          fi
 
       - name: Generate Allure Report
         if: always()
         run: |
-          mvn allure:report -B
+          # Генерируем отчет из timestamp директории
+          if [ -n "$TIMESTAMP_DIR" ]; then
+            mvn allure:report -B -Dallure.results.directory=$TIMESTAMP_DIR/allure-results
+          else
+            mvn allure:report -B
+          fi
 
-      - name: Upload Allure Report as artifact
+      - name: Upload Allure Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -47,12 +62,11 @@ jobs:
           path: target/allure-report/
           retention-days: 30
 
-      - name: Upload test artifacts
+      - name: Upload timestamp artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: timestamp-artifacts
           path: |
-            target/screenshots/
-            target/videos/
+            target/202*-*-*_*-*-*/  # Паттерн для поиска timestamp директорий
           retention-days: 30

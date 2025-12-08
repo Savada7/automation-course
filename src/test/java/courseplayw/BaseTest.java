@@ -2,15 +2,13 @@ package courseplayw;
 
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.LoadState;
-import com.microsoft.playwright.options.WaitForSelectorState;
 import io.qameta.allure.Allure;
-import io.qameta.allure.Attachment;
-import io.qameta.allure.Step;
 import io.qameta.allure.junit5.AllureJunit5;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.ByteArrayInputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
@@ -18,55 +16,85 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Properties;
 import java.util.UUID;
 
 @ExtendWith(AllureJunit5.class)
 public class BaseTest {
-    // Директории для артефактов
+    // Базовые директории
     protected static final Path PROJECT_ROOT = Paths.get(System.getProperty("user.dir"));
     protected static final Path TARGET_DIR = PROJECT_ROOT.resolve("target");
-    protected static final Path ERRORS_DIR = TARGET_DIR.resolve("errors");
-    protected static final Path VIDEOS_DIR = TARGET_DIR.resolve("videos");
-    protected static final Path SCREENSHOTS_DIR = TARGET_DIR.resolve("screenshots");
-    protected static final Path ALLURE_RESULTS_DIR = TARGET_DIR.resolve("allure-results");
+
+    // Директория с timestamp для текущего запуска
+    protected static Path TIMESTAMP_DIR;
+    protected static Path ERRORS_DIR;
+    protected static Path VIDEOS_DIR;
+    protected static Path SCREENSHOTS_DIR;
+    protected static Path ALLURE_RESULTS_DIR;
 
     protected static Playwright playwright;
     protected static Browser browser;
     protected BrowserContext context;
     protected Page page;
 
-    private String testVideoPath;
     private String currentTestName;
+    private String testRunId;
+    private static final DateTimeFormatter TIMESTAMP_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 
     @BeforeAll
     static void setupAll() {
         System.out.println("=== Setting up test environment ===");
 
-        // Создаем все необходимые директории
+        // Создаем уникальный ID для этого запуска
+        String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMATTER);
+        String runId = "run_" + timestamp + "_" + UUID.randomUUID().toString().substring(0, 8);
+
+        // Создаем основную директорию с timestamp
+        TIMESTAMP_DIR = TARGET_DIR.resolve(timestamp);
+
+        // Создаем поддиректории
+        ERRORS_DIR = TIMESTAMP_DIR.resolve("errors");
+        VIDEOS_DIR = TIMESTAMP_DIR.resolve("videos");
+        SCREENSHOTS_DIR = TIMESTAMP_DIR.resolve("screenshots");
+        ALLURE_RESULTS_DIR = TIMESTAMP_DIR.resolve("allure-results");
+
+        System.out.println("Run ID: " + runId);
+        System.out.println("Timestamp directory: " + TIMESTAMP_DIR.toAbsolutePath());
+
+        // Создаем все директории
         createDirectories();
 
-        // Создаем Playwright instance
+        // Создаем файл с информацией о запуске
+        createRunInfoFile(runId, timestamp);
+
+        // Инициализируем Playwright
         playwright = Playwright.create();
 
-        // Настраиваем браузер (можно менять через системные свойства)
+        // Настраиваем браузер
         String browserType = System.getProperty("browser", "chromium");
         boolean isHeadless = Boolean.parseBoolean(System.getProperty("headless", "true"));
+        int slowMo = Integer.parseInt(System.getProperty("slow.mo", "0"));
 
-        System.out.println("Browser type: " + browserType);
-        System.out.println("Headless mode: " + isHeadless);
+        System.out.println("Browser: " + browserType + ", Headless: " + isHeadless + ", SlowMo: " + slowMo);
 
         browser = switch (browserType.toLowerCase()) {
             case "firefox" -> playwright.firefox().launch(
-                    new BrowserType.LaunchOptions().setHeadless(isHeadless));
+                    new BrowserType.LaunchOptions()
+                            .setHeadless(isHeadless)
+                            .setSlowMo(slowMo));
             case "webkit" -> playwright.webkit().launch(
-                    new BrowserType.LaunchOptions().setHeadless(isHeadless));
+                    new BrowserType.LaunchOptions()
+                            .setHeadless(isHeadless)
+                            .setSlowMo(slowMo));
             default -> playwright.chromium().launch(
                     new BrowserType.LaunchOptions()
                             .setHeadless(isHeadless)
+                            .setSlowMo(slowMo)
                             .setArgs(java.util.List.of("--start-maximized")));
         };
 
-        System.out.println("Browser initialized successfully");
+        System.out.println("=== Test environment setup complete ===");
     }
 
     @BeforeEach
@@ -75,75 +103,82 @@ public class BaseTest {
         Method testMethod = testInfo.getTestMethod().orElse(null);
         String methodName = testMethod != null ? testMethod.getName() : "unknown";
 
-        System.out.println("\n=== Starting test: " + currentTestName + " ===");
-        System.out.println("Method: " + methodName);
+        // Генерируем ID для теста
+        testRunId = methodName + "_" + System.currentTimeMillis();
 
-        // Создаем уникальное имя для видео
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-        String videoFileName = sanitizeFileName(methodName + "_" + timestamp + "_" + UUID.randomUUID().toString().substring(0, 8));
-        Path videoPath = VIDEOS_DIR.resolve(videoFileName + ".webm");
+        System.out.println("\n--- Starting test: " + currentTestName + " ---");
+        System.out.println("Test ID: " + testRunId);
+
+        // Создаем директорию для видео этого теста
+        Path testVideoDir = VIDEOS_DIR.resolve(testRunId);
+        createDirectory(testVideoDir);
 
         // Создаем контекст с записью видео
         context = browser.newContext(new Browser.NewContextOptions()
-                .setRecordVideoDir(VIDEOS_DIR)
+                .setRecordVideoDir(testVideoDir)  // Видео в поддиректории теста
                 .setRecordVideoSize(1280, 720)
                 .setViewportSize(1920, 1080));
 
-        // Включаем запись видео
-        context.setDefaultTimeout(30000);
-
         // Создаем страницу
         page = context.newPage();
-
-        // Сохраняем путь к видео для прикрепления в Allure
-        testVideoPath = videoPath.toString();
+        page.setDefaultTimeout(30000);
 
         // Логируем в Allure
         Allure.step("Setup test: " + currentTestName, () -> {
             Allure.addAttachment("Test Information", "text/plain",
                     "Test Name: " + currentTestName + "\n" +
                             "Method: " + methodName + "\n" +
+                            "Test ID: " + testRunId + "\n" +
                             "Browser: " + System.getProperty("browser", "chromium") + "\n" +
-                            "Headless: " + System.getProperty("headless", "true") + "\n" +
-                            "Video: " + videoFileName + ".webm");
+                            "Run Directory: " + TIMESTAMP_DIR.getFileName() + "\n" +
+                            "Video Directory: " + testVideoDir.getFileName());
         });
     }
 
     @AfterEach
     void tearDownTest(TestInfo testInfo) {
-        System.out.println("\n=== Tearing down test: " + currentTestName + " ===");
+        System.out.println("\n--- Tearing down test: " + currentTestName + " ---");
 
         try {
             // Проверяем статус теста
             boolean testFailed = testInfo.getTags().contains("failed") ||
-                    testInfo.getTestMethod()
-                            .map(m -> m.isAnnotationPresent(Attachment.class))
-                            .orElse(false);
+                    (testInfo.getTestMethod().isPresent() &&
+                            testInfo.getTestMethod().get().isAnnotationPresent(io.qameta.allure.Attachment.class));
+
+            // Создаем директорию для скриншотов этого теста
+            Path testScreenshotDir = SCREENSHOTS_DIR.resolve(testRunId);
+            createDirectory(testScreenshotDir);
+
+            // Сохраняем финальный скриншот
+            saveScreenshot(testScreenshotDir, "final_state");
 
             if (testFailed) {
-                System.out.println("Test failed - capturing artifacts...");
+                System.out.println("Test failed - capturing error artifacts...");
 
-                // 1. Сохраняем скриншот при ошибке
-                saveScreenshot("error_" + currentTestName);
+                // Сохраняем дополнительные скриншоты при ошибке
+                saveScreenshot(testScreenshotDir, "error_final");
 
-                // 2. Прикрепляем скриншот к Allure
+                // Прикрепляем скриншот к Allure
                 byte[] screenshot = page.screenshot(new Page.ScreenshotOptions().setFullPage(true));
-                Allure.addAttachment("Error Screenshot", "image/png",
+                Allure.addAttachment("Error Screenshot - " + currentTestName, "image/png",
                         new ByteArrayInputStream(screenshot), ".png");
 
-                // 3. Сохраняем HTML страницы
+                // Сохраняем HTML страницы
                 String pageSource = page.content();
-                Allure.addAttachment("Page Source", "text/html",
+                Allure.addAttachment("Page Source - " + currentTestName, "text/html",
                         new ByteArrayInputStream(pageSource.getBytes()), ".html");
 
-                // 4. Сохраняем URL
-                Allure.addAttachment("Current URL", "text/plain", page.url());
+                // Сохраняем URL
+                Allure.addAttachment("Current URL - " + currentTestName, "text/plain", page.url());
 
-                System.out.println("Artifacts captured for failed test");
+                // Сохраняем HTML локально
+                saveHtmlPage(testScreenshotDir, "error_page");
+
+                System.out.println("Error artifacts saved to: " + testScreenshotDir);
             }
 
-            // 5. Прикрепляем видео к Allure (если запись велась)
-            attachVideoToAllure();
+            // Прикрепляем видео к Allure
+            attachVideoToAllure(testRunId);
 
         } catch (Exception e) {
             System.err.println("Error during test teardown: " + e.getMessage());
@@ -152,7 +187,7 @@ public class BaseTest {
             // Всегда закрываем контекст
             if (context != null) {
                 context.close();
-                System.out.println("Browser context closed");
+                System.out.println("Browser context closed for test: " + currentTestName);
             }
         }
     }
@@ -160,6 +195,9 @@ public class BaseTest {
     @AfterAll
     static void tearDownAll() {
         System.out.println("\n=== Cleaning up test environment ===");
+
+        // Создаем summary файл
+        createRunSummaryFile();
 
         if (browser != null) {
             browser.close();
@@ -171,6 +209,7 @@ public class BaseTest {
             System.out.println("Playwright closed");
         }
 
+        System.out.println("Artifacts saved in: " + TIMESTAMP_DIR.toAbsolutePath());
         System.out.println("=== Test environment cleanup complete ===");
     }
 
@@ -182,46 +221,104 @@ public class BaseTest {
     private static void createDirectories() {
         System.out.println("Creating directories...");
 
-        String[] dirs = {
-                TARGET_DIR.toString(),
-                ERRORS_DIR.toString(),
-                VIDEOS_DIR.toString(),
-                SCREENSHOTS_DIR.toString(),
-                ALLURE_RESULTS_DIR.toString()
-        };
+        Path[] dirs = {TIMESTAMP_DIR, ERRORS_DIR, VIDEOS_DIR, SCREENSHOTS_DIR, ALLURE_RESULTS_DIR};
 
-        for (String dir : dirs) {
-            Path path = Paths.get(dir);
+        for (Path dir : dirs) {
+            createDirectory(dir);
+        }
+    }
+
+    /**
+     * Создание одной директории
+     */
+    private static void createDirectory(Path path) {
+        try {
             if (!Files.exists(path)) {
-                try {
-                    Files.createDirectories(path);
-                    System.out.println("Created directory: " + path.toAbsolutePath());
-                } catch (IOException e) {
-                    System.err.println("Failed to create directory " + dir + ": " + e.getMessage());
-                }
+                Files.createDirectories(path);
+                System.out.println("Created directory: " + path.toAbsolutePath());
             }
+        } catch (IOException e) {
+            System.err.println("Failed to create directory " + path + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Создание файла с информацией о запуске
+     */
+    private static void createRunInfoFile(String runId, String timestamp) {
+        Path runInfoFile = TIMESTAMP_DIR.resolve("run-info.properties");
+
+        Properties props = new Properties();
+        props.setProperty("run.id", runId);
+        props.setProperty("timestamp", timestamp);
+        props.setProperty("os.name", System.getProperty("os.name"));
+        props.setProperty("os.version", System.getProperty("os.version"));
+        props.setProperty("java.version", System.getProperty("java.version"));
+        props.setProperty("user.name", System.getProperty("user.name"));
+        props.setProperty("browser", System.getProperty("browser", "chromium"));
+        props.setProperty("headless", System.getProperty("headless", "true"));
+        props.setProperty("slow.mo", System.getProperty("slow.mo", "0"));
+
+        try (FileWriter writer = new FileWriter(runInfoFile.toFile())) {
+            props.store(writer, "Test Run Information");
+            System.out.println("Run info file created: " + runInfoFile);
+        } catch (IOException e) {
+            System.err.println("Failed to create run info file: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Создание summary файла
+     */
+    private static void createRunSummaryFile() {
+        Path summaryFile = TIMESTAMP_DIR.resolve("RUN_SUMMARY.md");
+
+        try (FileWriter writer = new FileWriter(summaryFile.toFile())) {
+            writer.write("# Test Run Summary\n\n");
+            writer.write("## Run Information\n");
+            writer.write("- **Timestamp:** " + LocalDateTime.now().format(TIMESTAMP_FORMATTER) + "\n");
+            writer.write("- **Directory:** " + TIMESTAMP_DIR.getFileName() + "\n");
+            writer.write("- **OS:** " + System.getProperty("os.name") + "\n");
+            writer.write("- **Java Version:** " + System.getProperty("java.version") + "\n");
+            writer.write("- **Browser:** " + System.getProperty("browser", "chromium") + "\n");
+            writer.write("- **Headless:** " + System.getProperty("headless", "true") + "\n");
+            writer.write("\n## Directory Structure\n");
+            writer.write("```\n");
+            writer.write(TIMESTAMP_DIR.toAbsolutePath() + "\n");
+            writer.write("├── errors/           # Error screenshots and logs\n");
+            writer.write("├── videos/           # Video recordings\n");
+            writer.write("│   ├── test1_xxx/    # Videos for test 1\n");
+            writer.write("│   └── test2_xxx/    # Videos for test 2\n");
+            writer.write("├── screenshots/      # Test screenshots\n");
+            writer.write("│   ├── test1_xxx/    # Screenshots for test 1\n");
+            writer.write("│   └── test2_xxx/    # Screenshots for test 2\n");
+            writer.write("├── allure-results/   # Allure results\n");
+            writer.write("├── run-info.properties\n");
+            writer.write("└── RUN_SUMMARY.md\n");
+            writer.write("```\n");
+
+            System.out.println("Run summary created: " + summaryFile);
+        } catch (IOException e) {
+            System.err.println("Failed to create run summary: " + e.getMessage());
         }
     }
 
     /**
      * Сохранение скриншота
      */
-    protected void saveScreenshot(String screenshotName) {
+    protected void saveScreenshot(Path screenshotDir, String screenshotName) {
         try {
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"));
-            String fileName = sanitizeFileName(screenshotName + "_" + timestamp) + ".png";
-            Path screenshotPath = SCREENSHOTS_DIR.resolve(fileName);
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss_SSS"));
+            String fileName = String.format("%s_%s.png",
+                    sanitizeFileName(screenshotName), timestamp);
+
+            Path screenshotPath = screenshotDir.resolve(fileName);
 
             page.screenshot(new Page.ScreenshotOptions()
                     .setPath(screenshotPath)
                     .setFullPage(true));
 
-            System.out.println("Screenshot saved: " + screenshotPath);
-
-            // Прикрепляем к Allure
-            byte[] screenshotBytes = Files.readAllBytes(screenshotPath);
-            Allure.addAttachment("Screenshot: " + screenshotName, "image/png",
-                    new ByteArrayInputStream(screenshotBytes), ".png");
+            System.out.println("Screenshot saved: " + screenshotPath.getFileName());
 
         } catch (Exception e) {
             System.err.println("Failed to save screenshot: " + e.getMessage());
@@ -229,34 +326,43 @@ public class BaseTest {
     }
 
     /**
-     * Прикрепление видео к Allure отчету
+     * Сохранение HTML страницы
      */
-    private void attachVideoToAllure() {
+    private void saveHtmlPage(Path directory, String fileName) {
         try {
-            // Ждем завершения записи видео
-            Thread.sleep(1000);
+            String htmlContent = page.content();
+            Path htmlPath = directory.resolve(fileName + ".html");
 
-            // Ищем последний созданный видеофайл
-            Files.list(VIDEOS_DIR)
-                    .filter(path -> path.toString().endsWith(".webm"))
-                    .sorted((p1, p2) -> {
-                        try {
-                            return Files.getLastModifiedTime(p2).compareTo(Files.getLastModifiedTime(p1));
-                        } catch (IOException e) {
-                            return 0;
-                        }
-                    })
-                    .findFirst()
-                    .ifPresent(videoPath -> {
-                        try {
-                            byte[] videoBytes = Files.readAllBytes(videoPath);
-                            Allure.addAttachment("Test Execution Video", "video/webm",
-                                    new ByteArrayInputStream(videoBytes), ".webm");
-                            System.out.println("Video attached to Allure: " + videoPath.getFileName());
-                        } catch (IOException e) {
-                            System.err.println("Failed to read video file: " + e.getMessage());
-                        }
-                    });
+            Files.writeString(htmlPath, htmlContent);
+            System.out.println("HTML page saved: " + htmlPath.getFileName());
+
+        } catch (Exception e) {
+            System.err.println("Failed to save HTML page: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Прикрепление видео к Allure
+     */
+    private void attachVideoToAllure(String testId) {
+        try {
+            Path testVideoDir = VIDEOS_DIR.resolve(testId);
+
+            if (Files.exists(testVideoDir)) {
+                Files.list(testVideoDir)
+                        .filter(path -> path.toString().endsWith(".webm"))
+                        .findFirst()
+                        .ifPresent(videoPath -> {
+                            try {
+                                byte[] videoBytes = Files.readAllBytes(videoPath);
+                                Allure.addAttachment("Video - " + currentTestName, "video/webm",
+                                        new ByteArrayInputStream(videoBytes), ".webm");
+                                System.out.println("Video attached to Allure: " + videoPath.getFileName());
+                            } catch (IOException e) {
+                                System.err.println("Failed to read video file: " + e.getMessage());
+                            }
+                        });
+            }
 
         } catch (Exception e) {
             System.err.println("Failed to attach video to Allure: " + e.getMessage());
@@ -264,87 +370,22 @@ public class BaseTest {
     }
 
     /**
-     * Метод для Allure шагов со скриншотом
+     * Утилита для удобного сохранения скриншотов
      */
-    @Step("{stepName}")
-    protected void allureStepWithScreenshot(String stepName, Runnable action) {
-        System.out.println("Step: " + stepName);
+    protected void captureScreenshot(String stepName) {
+        Path testScreenshotDir = SCREENSHOTS_DIR.resolve(testRunId);
+        createDirectory(testScreenshotDir);
 
-        try {
-            action.run();
+        saveScreenshot(testScreenshotDir, stepName);
 
-            // Делаем скриншот после успешного выполнения шага
-            byte[] screenshot = page.screenshot(new Page.ScreenshotOptions()
-                    .setFullPage(false));
-
-            Allure.addAttachment("Step: " + stepName, "image/png",
-                    new ByteArrayInputStream(screenshot), ".png");
-
-        } catch (Exception e) {
-            // При ошибке сохраняем скриншот с ошибкой
-            byte[] errorScreenshot = page.screenshot(new Page.ScreenshotOptions()
-                    .setFullPage(true));
-
-            Allure.addAttachment("Error in step: " + stepName, "image/png",
-                    new ByteArrayInputStream(errorScreenshot), ".png");
-
-            Allure.addAttachment("Error details", "text/plain",
-                    "Step: " + stepName + "\n" +
-                            "Error: " + e.getMessage() + "\n" +
-                            "URL: " + page.url());
-
-            throw e;
-        }
+        // Также прикрепляем к Allure
+        byte[] screenshot = page.screenshot(new Page.ScreenshotOptions().setFullPage(true));
+        Allure.addAttachment("Screenshot: " + stepName, "image/png",
+                new ByteArrayInputStream(screenshot), ".png");
     }
 
     /**
-     * Навигация с логированием
-     */
-    protected void navigateTo(String url, String pageDescription) {
-        allureStepWithScreenshot("Navigate to: " + pageDescription, () -> {
-            page.navigate(url);
-            page.waitForLoadState(LoadState.NETWORKIDLE);
-
-            // Логируем информацию о странице
-            Allure.addAttachment("Page Information", "text/plain",
-                    "URL: " + url + "\n" +
-                            "Description: " + pageDescription + "\n" +
-                            "Title: " + page.title() + "\n" +
-                            "Current URL: " + page.url());
-        });
-    }
-
-    /**
-     * Клик с ожиданием и логированием
-     */
-    protected void clickElement(String selector, String elementDescription) {
-        allureStepWithScreenshot("Click: " + elementDescription, () -> {
-            Locator element = page.locator(selector);
-            element.waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.VISIBLE));
-            element.click();
-
-            Allure.addAttachment("Clicked Element", "text/plain",
-                    "Selector: " + selector + "\n" +
-                            "Description: " + elementDescription);
-        });
-    }
-
-    /**
-     * Заполнение поля с логированием
-     */
-    protected void fillField(String selector, String value, String fieldDescription) {
-        Allure.step("Fill field: " + fieldDescription, () -> {
-            page.fill(selector, value);
-
-            Allure.addAttachment("Filled Field", "text/plain",
-                    "Selector: " + selector + "\n" +
-                            "Value: " + value + "\n" +
-                            "Description: " + fieldDescription);
-        });
-    }
-
-    /**
-     * Очистка имени файла от недопустимых символов
+     * Очистка имени файла
      */
     private String sanitizeFileName(String name) {
         if (name == null) return "unnamed";
@@ -354,63 +395,51 @@ public class BaseTest {
                 .trim();
     }
 
+    // ==================== ПУБЛИЧНЫЕ МЕТОДЫ ====================
+
     /**
-     * Получение текущего времени для логов
+     * Получить путь к директории текущего запуска
      */
-    protected String getCurrentTime() {
-        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss.SSS"));
+    public static Path getTimestampDir() {
+        return TIMESTAMP_DIR;
     }
 
     /**
-     * Ожидание с логированием
+     * Получить путь к директории скриншотов
      */
-    protected void waitForTimeout(int milliseconds, String reason) {
-        Allure.step("Wait: " + reason + " (" + milliseconds + "ms)", () -> {
-            System.out.println(getCurrentTime() + " - Waiting " + milliseconds + "ms: " + reason);
-            page.waitForTimeout(milliseconds);
+    public static Path getScreenshotsDir() {
+        return SCREENSHOTS_DIR;
+    }
+
+    /**
+     * Получить путь к директории видео
+     */
+    public static Path getVideosDir() {
+        return VIDEOS_DIR;
+    }
+
+    /**
+     * Получить текущий timestamp
+     */
+    public static String getCurrentTimestamp() {
+        return LocalDateTime.now().format(TIMESTAMP_FORMATTER);
+    }
+
+    /**
+     * Метод для перехода с сохранением скриншота
+     */
+    protected void navigateWithScreenshot(String url, String pageDescription) {
+        Allure.step("Navigate to: " + pageDescription, () -> {
+            page.navigate(url);
+            page.waitForLoadState(LoadState.NETWORKIDLE);
+
+            // Сохраняем скриншот
+            captureScreenshot("navigate_" + sanitizeFileName(pageDescription));
+
+            Allure.addAttachment("Page Info", "text/plain",
+                    "URL: " + url + "\n" +
+                            "Title: " + page.title() + "\n" +
+                            "Description: " + pageDescription);
         });
-    }
-
-    /**
-     * Проверка видимости элемента
-     */
-    protected void assertElementVisible(String selector, String elementDescription) {
-        Allure.step("Assert element visible: " + elementDescription, () -> {
-            boolean isVisible = page.locator(selector).isVisible();
-            Assertions.assertTrue(isVisible, elementDescription + " should be visible");
-
-            Allure.addAttachment("Assertion Result", "text/plain",
-                    "Element: " + elementDescription + "\n" +
-                            "Selector: " + selector + "\n" +
-                            "Is Visible: " + isVisible);
-        });
-    }
-
-    /**
-     * Метод для прикрепления текста к Allure
-     */
-    protected void attachText(String name, String content) {
-        Allure.addAttachment(name, "text/plain", content);
-    }
-
-    /**
-     * Метод для прикрепления JSON к Allure
-     */
-    protected void attachJson(String name, String jsonContent) {
-        Allure.addAttachment(name, "application/json", jsonContent);
-    }
-
-    /**
-     * Получение текущей страницы (для доступа в тестах)
-     */
-    protected Page getPage() {
-        return page;
-    }
-
-    /**
-     * Получение текущего контекста
-     */
-    protected BrowserContext getContext() {
-        return context;
     }
 }
