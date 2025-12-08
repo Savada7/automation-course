@@ -14,14 +14,24 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: maven
 
-      - name: Run tests
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Install Playwright dependencies
         run: |
-          # Установка зависимостей Playwright
-          mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install" -B
-          
-          # Запуск тестов
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgbm-dev libnss3 libatk-bridge2.0-0 libdrm-dev libxkbcommon-dev libxcomposite-dev libxdamage-dev libxrandr2 libxext6
+
+      - name: Run tests with Xvfb
+        run: |
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1920x1080x24 >/dev/null 2>&1 &
           mvn clean test -B
 
       - name: Generate Allure Report
@@ -29,15 +39,20 @@ jobs:
         run: |
           mvn allure:report -B
 
-      - name: Upload artifacts
+      - name: Upload Allure Report as artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts
+          name: allure-report
+          path: target/allure-report/
+          retention-days: 30
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
           path: |
-            target/allure-report/
-            target/allure-results/
             target/screenshots/
             target/videos/
-            target/surefire-reports/
           retention-days: 30
