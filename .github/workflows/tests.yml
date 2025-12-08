@@ -35,21 +35,30 @@ jobs:
           
           # Запуск тестов с замедлением для видео
           mvn clean test -B -Dslow.mo=200 -Dheadless=true
-          
-          # Получаем timestamp директорию
-          TIMESTAMP_DIR=$(find target -type d -name "202*-*-*_*-*-*" | head -1)
+
+      - name: Find timestamp directory
+        id: find-timestamp
+        run: |
+          # Ищем последнюю timestamp директорию
+          TIMESTAMP_DIR=$(find target -maxdepth 1 -type d -name "202*-*-*_*-*-*" | head -1)
           
           if [ -n "$TIMESTAMP_DIR" ]; then
-            echo "Artifacts saved in: $TIMESTAMP_DIR"
-            echo "TIMESTAMP_DIR=$TIMESTAMP_DIR" >> $GITHUB_ENV
+            echo "Found timestamp directory: $TIMESTAMP_DIR"
+            echo "timestamp_dir=$TIMESTAMP_DIR" >> $GITHUB_OUTPUT
+          
+            # Создаем симлинк для удобства
+            ln -sf $TIMESTAMP_DIR target/latest-run
+            echo "Created symlink: target/latest-run -> $TIMESTAMP_DIR"
+          else
+            echo "No timestamp directory found"
           fi
 
       - name: Generate Allure Report
         if: always()
         run: |
-          # Генерируем отчет из timestamp директории
-          if [ -n "$TIMESTAMP_DIR" ]; then
-            mvn allure:report -B -Dallure.results.directory=$TIMESTAMP_DIR/allure-results
+          # Генерируем отчет из timestamp директории если она есть
+          if [ -n "${{ steps.find-timestamp.outputs.timestamp_dir }}" ]; then
+            mvn allure:report -B -Dallure.results.directory=${{ steps.find-timestamp.outputs.timestamp_dir }}/allure-results
           else
             mvn allure:report -B
           fi
@@ -63,10 +72,18 @@ jobs:
           retention-days: 30
 
       - name: Upload timestamp artifacts
+        if: always() && steps.find-timestamp.outputs.timestamp_dir != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: timestamp-artifacts-${{ steps.find-timestamp.outputs.timestamp_dir }}
+          path: |
+            ${{ steps.find-timestamp.outputs.timestamp_dir }}/
+          retention-days: 30
+
+      - name: Upload all target artifacts (fallback)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: timestamp-artifacts
-          path: |
-            target/202*-*-*_*-*-*/  # Паттерн для поиска timestamp директорий
+          name: all-target-files
+          path: target/
           retention-days: 30
