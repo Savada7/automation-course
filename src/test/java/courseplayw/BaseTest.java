@@ -4,7 +4,6 @@ import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import io.qameta.allure.Allure;
-import io.qameta.allure.AllureLifecycle;
 import io.qameta.allure.Attachment;
 import io.qameta.allure.Step;
 import io.qameta.allure.junit5.AllureJunit5;
