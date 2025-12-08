@@ -5,30 +5,59 @@ on: [push]
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Set up Java 17
         uses: actions/setup-java@v3
         with:
-          java-version: '17'
+          distribution: temurin
+          java-version: "17"
 
-      - name: Run tests
+      - name: Install Playwright dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgbm1 \
+            libnss3 \
+            libatk-bridge2.0-0 \
+            libdrm2 \
+            libxkbcommon0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            libxext6 \
+            xvfb
+
+      - name: Run tests with slow motion
         run: |
           export DISPLAY=:99
           Xvfb :99 -screen 0 1920x1080x24 >/dev/null 2>&1 &
-          mvn clean test -B -Dslow.mo=200
+          
+          # Запускаем тесты с замедлением 300ms для видео
+          mvn clean test -B \
+            -Dslow.mo=300 \
+            -Dheadless=true \
+            -Dbrowser=chromium
 
-      - name: Create artifacts archive
+      - name: Generate Allure Report
         if: always()
         run: |
-          # Просто архивируем всю папку target
-          zip -r test-results.zip target/
+          mvn allure:report -B
 
-      - name: Upload results
+      - name: Upload Allure Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
-          path: test-results.zip
+          name: allure-report
+          path: target/allure-report/
+          retention-days: 30
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts
+          path: target/
           retention-days: 30
