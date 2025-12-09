@@ -7,40 +7,44 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-public class TestHomePageVisual extends BaseTest{
+public class TestHomePageVisual extends BaseTest {
+
     @Test
     void checkScreenshot() throws IOException {
-        // 1. Открыть страницу и сделать скриншот
         page.navigate("https://the-internet.herokuapp.com/");
-        byte[] currentScreenshot = page.screenshot();
+        byte[] screenshot = page.screenshot();
 
-        // 2. Путь к эталону
-        Path referencePath = Paths.get("src/test/resources/reference.png");
+        Path current = Paths.get("target/current.png");
+        Files.write(current, screenshot);
 
-        // 3. Если эталона нет - создать
-        if (!Files.exists(referencePath)) {
-            System.out.println("Создаю эталонный скриншот...");
-            Files.createDirectories(referencePath.getParent());
-            Files.write(referencePath, currentScreenshot);
-            return; // Тест завершен
+        Path reference = Paths.get("src/test/resources/reference.png");
+
+        if (!Files.exists(reference)) {
+            Files.createDirectories(reference.getParent());
+            Files.copy(current, reference);
+            System.out.println("Эталон создан");
+            return;
         }
 
-        // 4. Прочитать эталон
-        byte[] referenceScreenshot = Files.readAllBytes(referencePath);
+        // Используем Files.mismatch() для сравнения
+        long result = Files.mismatch(current, reference);
 
-        // 5. Простое сравнение массивов байтов
-        if (currentScreenshot.length != referenceScreenshot.length) {
-            throw new RuntimeException("Размеры скриншотов разные!");
+        if (result != -1) {
+            // Создаем простой diff файл
+            String diff = String.format(
+                    "Файлы разные!\n" +
+                            "Отличие на байте: %d\n" +
+                            "Текущий размер: %d байт\n" +
+                            "Эталонный размер: %d байт\n",
+                    result,
+                    Files.size(current),
+                    Files.size(reference)
+            );
+
+            Files.writeString(Paths.get("target/diff.txt"), diff);
+            throw new RuntimeException("Скриншоты различаются!\n" + diff);
         }
 
-        // 6. Поиск первого различия
-        for (int i = 0; i < currentScreenshot.length; i++) {
-            if (currentScreenshot[i] != referenceScreenshot[i]) {
-                throw new RuntimeException("Скриншоты разные! Первое отличие на байте " + i);
-            }
-        }
-
-        System.out.println("✅ Все ок, скриншоты одинаковые!");
+        System.out.println("OK");
     }
 }
-
