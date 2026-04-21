@@ -1,63 +1,115 @@
-name: Java CI with Playwright
+name: Java CI with Playwright & Allure
 
-on: [push]
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
 
 jobs:
-  test:
+  # JOB 1: Тесты для статус-кодов (dev + prod)
+  status-code-tests:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Java 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Playwright dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgbm1 \
-            libnss3 \
-            libatk-bridge2.0-0 \
-            libdrm2 \
-            libxkbcommon0 \
-            libxcomposite1 \
-            libxdamage1 \
-            libxrandr2 \
-            libxext6 \
-            xvfb
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
 
-      - name: Run tests with slow motion
+      - name: Install Playwright browsers
         run: |
-          export DISPLAY=:99
-          Xvfb :99 -screen 0 1920x1080x24 >/dev/null 2>&1 &
-          
-          # Запускаем тесты с замедлением 300ms для видео
-          mvn clean test -B \
-            -Dslow.mo=300 \
-            -Dheadless=true \
-            -Dbrowser=chromium
+          mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install"
 
-      - name: Generate Allure Report
+      - name: Run StatusCodeTest for DEV
+        run: |
+          env=dev mvn test -Dtest=StatusCodeTest -B
+
+      - name: Run StatusCodeTest for PROD (allowed to fail)
+        run: |
+          env=prod mvn test -Dtest=StatusCodeTest -B || true
+
+      - name: Generate Allure Report for StatusCode tests
         if: always()
         run: |
           mvn allure:report -B
 
-      - name: Upload Allure Report
+      - name: Upload Allure Report for StatusCode tests
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
-          name: allure-report
+          name: allure-report-status-code
           path: target/allure-report/
           retention-days: 30
 
-      - name: Upload test artifacts
+      - name: Upload test results for StatusCode tests
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
-          name: test-artifacts
-          path: target/
+          name: test-results-status-code
+          path: |
+            target/surefire-reports/
+            target/allure-results/
+          retention-days: 30
+
+  # JOB 2: Все остальные тесты (только dev)
+  other-tests:
+    runs-on: ubuntu-latest
+    needs: status-code-tests
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Install Playwright browsers
+        run: |
+          mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install"
+
+      - name: Run ALL other tests for DEV (excluding StatusCodeTest)
+        run: |
+          env=dev mvn test -Dtest='!StatusCodeTest' -B
+
+      - name: Generate Allure Report for all other tests
+        if: always()
+        run: |
+          mvn allure:report -B
+
+      - name: Upload Allure Report for other tests
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: allure-report-other-tests
+          path: target/allure-report/
+          retention-days: 30
+
+      - name: Upload test results for other tests
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-results-other-tests
+          path: |
+            target/surefire-reports/
+            target/allure-results/
           retention-days: 30
