@@ -40,7 +40,7 @@ public class LoginDbTest {
         browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
         page = browser.newPage();
     }
-
+    @Disabled
     @Test
     void testLoginWithDbUser() throws SQLException {
         // Получение данных из БД

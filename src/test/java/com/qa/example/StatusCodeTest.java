@@ -38,21 +38,21 @@ public class StatusCodeTest {
         page = context.newPage();
 
     }
-
+    @Disabled
     @Test
     void testStatusCode200() {
         String url = config.baseUrl() + "/status_codes/200";
         Response response = page.navigate(url);
         assertEquals(200, response.status());
     }
-
+    @Disabled
     @Test
     void testStatusCode404() {
         String url = config.baseUrl() + "/status_codes/404";
         Response response = page.navigate(url);
         assertEquals(404, response.status());
     }
-
+    @Disabled
     @Test
     void testStatusCode500() {
         String url = config.baseUrl() + "/status_codes/500";

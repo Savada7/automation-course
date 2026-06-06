@@ -1,0 +1,7 @@
+version: '3.8'
+services:
+  playwright:
+    build: .
+    environment:
+      - BASE_URL=https://the-internet.herokuapp.com
+    command: mvn test -Dtest=LoginTest

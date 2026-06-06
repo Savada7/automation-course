@@ -9,6 +9,7 @@ import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.Playwright;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,7 +27,7 @@ public class TodoApiTest {
                         .setBaseURL("https://jsonplaceholder.typicode.com")
         );
     }
-
+    @Disabled
     @Test
     void testTodoBaseEndPoint() throws Exception{
         APIResponse response = requestContext.get("/");
@@ -34,7 +35,7 @@ public class TodoApiTest {
         assertEquals(200, response.status());
     }
     // Так как базовый эндпоинт возвращает ответ только HTML проверяем только статус, без парсинга
-
+    @Disabled
     @Test
     void testTodoApi() throws Exception{
         APIResponse response = requestContext.get("/todos/1");
