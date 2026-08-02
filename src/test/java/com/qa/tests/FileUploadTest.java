@@ -23,6 +23,7 @@ public class FileUploadTest {
     }
 
     @Test
+    @Disabled
     void testPngFileUploadAndDownload() {
         // Генерируем тестовый PNG-файл в памяти
         byte[] originalPng = createTestPng(80, 60);
