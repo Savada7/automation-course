@@ -22,8 +22,8 @@ public class FileUploadTest {
         request = playwright.request().newContext();
     }
 
-    @Test
     @Disabled
+    @Test
     void testPngFileUploadAndDownload() {
         // Генерируем тестовый PNG-файл в памяти
         byte[] originalPng = createTestPng(80, 60);
